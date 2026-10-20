@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>TMS320F28035 官方例程学习表</title>
+<style>
+  body { font-family: "Microsoft YaHei", Arial, sans-serif; margin: 20px; }
+  h1 { font-size: 20px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { border: 1px solid #999; padding: 6px 8px; vertical-align: top; }
+  th { background: #d9e2f3; font-weight: bold; text-align: left; white-space: nowrap; }
+  tr:nth-child(even) td { background: #f7f9fc; }
+  td:nth-child(1) { white-space: nowrap; }
+  td:nth-child(2) { white-space: nowrap; }
+</style>
+</head>
+<body>
+
+<h1>TMS320F28035 官方例程学习表</h1>
+
+<table>
+  <thead>
+    <tr>
+      <th>阶段/类别</th>
+      <th>例程</th>
+      <th>跑通要注意</th>
+      <th>要掌握的知识点</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>GPIO</td>
+      <td>gpio_toggle ★</td>
+      <td>① 注释里有硬件警告：程序会翻转所有 GPIO，先把你的板子原理图搞清楚，外设复用引脚（PWM/SCI 等）被翻转可能损坏电路 ② 用宏 EXAMPLE1/2/3 切换三种写法</td>
+      <td>IO 的四种操作：GPADAT（直接写）、GPASET/GPACLEAR（置位/清零）、GPATOGGLE（翻转）；软件延时 delay_loop</td>
+    </tr>
+    <tr>
+      <td>GPIO</td>
+      <td>gpio_setup</td>
+      <td>对比例程中的默认配置：全部使能上拉、通信引脚异步输入限定</td>
+      <td>GPAMUX（复用选择）、GPADIR（方向）、GPAPUD（上拉）、GPACTRL（输入限定）；GPIO 默认状态</td>
+    </tr>
+    <tr>
+      <td>定时器/中断入门</td>
+      <td>timed_led_blink ★</td>
+      <td>观察 GPIO34 上 LED 500ms 翻转；这是第一个带中断的程序</td>
+      <td>CPU Timer0 配置（周期 = 500ms/16.667ns 算 PRD）、InitCpuTimers()、中断计数变量</td>
+    </tr>
+    <tr>
+      <td>看门狗</td>
+      <td>watchdog</td>
+      <td>看门狗默认是开的，InitSysCtrl() 里先关掉；本例把 WD 接到 WAKEINT 验证溢出</td>
+      <td>看门狗原理：计数器溢出→复位；为什么量产程序要“喂狗”；WDCR 寄存器</td>
+    </tr>
+    <tr>
+      <td>振荡器</td>
+      <td>osc_comp</td>
+      <td>需要温度传感器配合（会用到阶段四知识，先读懂主流程即可）</td>
+      <td>内部振荡器精度随温度漂移、INTOSC1TRIM 补偿原理</td>
+    </tr>
+    <tr>
+      <td>引脚复用</td>
+      <td>pinmux</td>
+      <td>空工程，练手：自己配置一组引脚</td>
+      <td>引脚复用表怎么查（数据手册 GPIO 章节）</td>
+    </tr>
+    <tr>
+      <td>外部中断</td>
+      <td>external_interrupt ★</td>
+      <td>需要跳线：GPIO30→GPIO0（XINT1）、GPIO31→GPIO1（XINT2），没跳线看不到计数增长</td>
+      <td>XINTnCR 配置、PIE 分组、中断向量映射；看 Xint1Count 变量增长</td>
+    </tr>
+    <tr>
+      <td>CPU 定时器</td>
+      <td>cpu_timer</td>
+      <td>Timer0 挂 PIE，Timer1/2 不挂 —— 对比差异</td>
+      <td>三个 CPU Timer 的区别；中断周期计算公式；IER/IFR 含义</td>
+    </tr>
+    <tr>
+      <td>软件优先级中断</td>
+      <td>sw_prioritized_interrupts</td>
+      <td>代码较抽象，先跑通再抠逻辑</td>
+      <td>PIE 默认硬件优先级；如何用软件重排优先级（配 IER+ 嵌套）</td>
+    </tr>
+    <tr>
+      <td>SCI</td>
+      <td>scia_loopback_interrupts</td>
+      <td>内部回环，无需外部硬件</td>
+      <td>SCI 帧格式、波特率计算（BRR）、FIFO 使用、接收/发送 ISR</td>
+    </tr>
+    <tr>
+      <td>SPI</td>
+      <td>spi_loopback_interrupts</td>
+      <td>内部回环</td>
+      <td>SPI 主从模式、时钟极性/相位（CPOL/CPHA）、FIFO</td>
+    </tr>
+    <tr>
+      <td>ePWM 中断</td>
+      <td>epwm_timer_interrupts</td>
+      <td>四个 ePWM 同步起振，看 4 个计数器变量</td>
+      <td>ePWM 事件触发（ET）模块：zero/period/compare 事件选中断源；IER |= M_INT3 + PIEIER3 两级使能 —— 这是进入 PWM 世界的跳板</td>
+    </tr>
+    <tr>
+      <td>ePWM</td>
+      <td>epwm_up_aq ★</td>
+      <td>用示波器看 GPIO0/GPIO1 波形；没示波器用 CCS 的 Graph 工具或逻辑分析仪</td>
+      <td>时基模块 TB（计数模式/周期/相位）、动作限定 AQ（CTR=0/PRD/CMPA 时输出动作）</td>
+    </tr>
+    <tr>
+      <td>ePWM</td>
+      <td>epwm_updown_aq</td>
+      <td>对比 up 模式的波形差异</td>
+      <td>增减计数模式、对称 PWM 的产生（电机控制标准模式）</td>
+    </tr>
+    <tr>
+      <td>ePWM</td>
+      <td>epwm_deadband ★</td>
+      <td>示波器看 EPWM1A/1B 之间的死区</td>
+      <td>死区模块 DB：上升/下降沿延迟、DBRED/DBFED；死区作用 = 防止桥臂直通</td>
+    </tr>
+    <tr>
+      <td>ePWM</td>
+      <td>epwm_trip_zone ★</td>
+      <td>需要外部把 TZ 引脚拉低触发跳闸</td>
+      <td>联锁模块 TZ：one-shot（一次性）vs cycle-by-cycle（逐周期）两种跳闸；TZ1-TZ6 输入；故障后强制输出高/低</td>
+    </tr>
+    <tr>
+      <td>ePWM</td>
+      <td>epwm_blanking_window</td>
+      <td>与 trip_zone 配合理解</td>
+      <td>消隐窗口：TZ 输入噪声滤除、换相瞬间屏蔽误触发</td>
+    </tr>
+    <tr>
+      <td>ePWM</td>
+      <td>epwm_dcevent_trip / _comp</td>
+      <td>第二个例程用到比较器子模块，先跑通第一个</td>
+      <td>DC 事件跳闸 DCAEVT1/DCBEVT1；比较器 CMPSS（模拟比较 + 数字滤波）</td>
+    </tr>
+    <tr>
+      <td>ePWM</td>
+      <td>epwm_real-time_interrupts</td>
+      <td>实时中断 + 单步调试观察</td>
+      <td>实时中断 RTINT 与普通中断区别</td>
+    </tr>
+    <tr>
+      <td>Flash</td>
+      <td>flash_f28035</td>
+      <td>这是第一个烧 Flash 的例程，用 F28035.cmd 链接；注意 Flash 等待状态</td>
+      <td>为什么 .text 放 Flash 而 ramfuncs 要拷到 RAM 运行；memcpy 搬移流程</td>
+    </tr>
+    <tr>
+      <td>HRPWM</td>
+      <td>hrpwm / hrpwm_slider ★</td>
+      <td>需要示波器才能看出 MEP 微边沿移动；slider 版可改占空比滑块</td>
+      <td>HRPWM 原理：MEP 微边沿定位（150ps 级）、HRMSTEP 寄存器、高分辨率周期/占空比</td>
+    </tr>
+    <tr>
+      <td>HRPWM</td>
+      <td>hrpwm_duty_sfo_v6 等 5 个 SFO 例程</td>
+      <td>了解即可，SFO 库函数调用模式</td>
+      <td>MEP 标度因子（SFO）校准：温度/电压漂移补偿，量产必须用</td>
+    </tr>
+    <tr>
+      <td>ADC</td>
+      <td>adc_soc</td>
+      <td>输入引脚接可调电压（注意量程 0-3.3V），Graph 看结果</td>
+      <td>SOC（start-of-conversion）机制、触发源（软件/EPWM/定时器）、结果寄存器 ADCRESULT、优先级</td>
+    </tr>
+    <tr>
+      <td>ADC</td>
+      <td>adc_temp_sensor</td>
+      <td>直接读片内温度</td>
+      <td>ADC 温度传感器通道、ConvertTempSensor 宏</td>
+    </tr>
+    <tr>
+      <td>ADC</td>
+      <td>adc_temp_sensor_conv</td>
+      <td>输出 degC/degK</td>
+      <td>温度转换公式、DSP2803x_TempSensorConv.c 库函数</td>
+    </tr>
+    <tr>
+      <td>ADC</td>
+      <td>adc_periodic_offset_calibration</td>
+      <td>周期校准流程</td>
+      <td>偏移误差来源、校准序列（一次转换后补偿）</td>
+    </tr>
+    <tr>
+      <td>ADC</td>
+      <td>adc_offset_look_up_table</td>
+      <td>校准查表法</td>
+      <td>查找表校准 vs 周期校准的取舍</td>
+    </tr>
+    <tr>
+      <td>ADC/CLA</td>
+      <td>cla_adc / cla_adc_fir / cla_adc_fir_flash</td>
+      <td>放在这里跑第一遍，阶段八再回头深究</td>
+      <td>ADC 结果 → 触发 CLA 任务 → FIR 滤波的完整数据流</td>
+    </tr>
+    <tr>
+      <td>SCI</td>
+      <td>sci_echoback ★</td>
+      <td>电脑串口助手/超级终端连 SCIA（注意电平转换，板载 USB 转串口则直接连）；发字符看回显</td>
+      <td>SCI 协议：起始位/数据/停止位、波特率匹配、SCIA 引脚配置</td>
+    </tr>
+    <tr>
+      <td>SCI</td>
+      <td>scia_loopback</td>
+      <td>内部回环，无需硬件</td>
+      <td>数字回环测试模式（DBCTL）</td>
+    </tr>
+    <tr>
+      <td>LIN/SCI</td>
+      <td>lina_sci_echoback / lina_sci_loopback_interrupts / lina_external_loopback</td>
+      <td>LIN 模块复用为 SCI；外部回环需要引脚短接</td>
+      <td>LIN 协议与 SCI 差异、LIN 模式下回环</td>
+    </tr>
+    <tr>
+      <td>SPI</td>
+      <td>spi_loopback</td>
+      <td>内部回环</td>
+      <td>SPI 主从、时钟极相（对照阶段二）</td>
+    </tr>
+    <tr>
+      <td>I2C</td>
+      <td>i2c_eeprom ★</td>
+      <td>必须外接 I2C EEPROM（地址 0x50，如 AT24C 系列）到 I2C 总线，没有芯片跑不通</td>
+      <td>I2C 时序、从机地址、写 1-14 字再读回验证</td>
+    </tr>
+    <tr>
+      <td>eCAN</td>
+      <td>ecan_back2back ★</td>
+      <td>需要两个 CAN 节点或回环模式；注意波特率（例程默认 1Mbps 需看板载收发器）</td>
+      <td>CAN 报文格式、邮箱 Mailbox 收发、波特率位时序配置</td>
+    </tr>
+    <tr>
+      <td>eCAP</td>
+      <td>ecap_capture_pwm ★</td>
+      <td>ePWM 产生信号给 eCAP 捕获，示波器/Graph 看结果</td>
+      <td>eCAP 捕获事件（边沿）、连续捕获测脉宽/周期、CAP 寄存器组</td>
+    </tr>
+    <tr>
+      <td>eCAP</td>
+      <td>ecap_apwm</td>
+      <td>对比捕获模式</td>
+      <td>eCAP 的第二功能：辅助 PWM 输出（APWM 模式）</td>
+    </tr>
+    <tr>
+      <td>HRCAP</td>
+      <td>hrcap_capture_pwm / hrcap_capture_hrpwm</td>
+      <td>高分辨率捕获，需要 HRPWM 配合</td>
+      <td>HRCAP 校准流程、非 HR 与 HR 模式差异</td>
+    </tr>
+    <tr>
+      <td>eQEP</td>
+      <td>eqep_freqcal</td>
+      <td>例程用 ePWM 产生 5kHz 信号自测</td>
+      <td>eQEP 频率测量原理（捕获单元测相邻边沿时间）</td>
+    </tr>
+    <tr>
+      <td>eQEP</td>
+      <td>eqep_pos_speed ★</td>
+      <td>ePWM 模拟 A/B 相 + GPIO 模拟 Index；这是电机转速/位置环的关键例程</td>
+      <td>正交解码 QDEC 计数、Index 索引脉冲、位置计算、速度算法（M 法/T 法）</td>
+    </tr>
+    <tr>
+      <td>低功耗</td>
+      <td>lpm_idlewake / lpm_standbywake / lpm_haltwake ★</td>
+      <td>测最低电流必须拔掉 JTAG 仿真器（注释里明确写了），否则电流测不准；唤醒源不同（IDLE 用 XINT1，STANDBY/HALT 用 GPIO）</td>
+      <td>三种低功耗模式功耗递减、唤醒源配置、LPMCR0 寄存器、唤醒后的复位行为</td>
+    </tr>
+    <tr>
+      <td>Flash</td>
+      <td>flash_programming</td>
+      <td>用 Flash 链接文件；写密码区要极其小心（密码写错会永久锁死芯片）</td>
+      <td>Flash 擦除/编程/校验 API、流水线模式、等待状态设置</td>
+    </tr>
+    <tr>
+      <td>Flash Boot</td>
+      <td>f2803x_flash_kernel / f2803x_can_flash_kernel</td>
+      <td>配合 TI 的 SerialLoader2000 / CAN Flash Programmer 上位机工具使用，进阶内容</td>
+      <td>SCI/CAN 引导模式（boot ROM 里读 boot 引脚）、串口/CAN 烧写引导内核原理</td>
+    </tr>
+    <tr>
+      <td>CLA</td>
+      <td>cla_adc_fir</td>
+      <td>阶段四已跑过，这里精读：看 ADCINT 触发 → CLA Task 执行 → 结果回写</td>
+      <td>CLA 任务 1-8、MVECT 向量表、任务中断 MIFR/MIER、共享内存区（CPU 和 CLA 共用的变量）</td>
+    </tr>
+    <tr>
+      <td>CLA</td>
+      <td>fir32 / iir2p2z</td>
+      <td>Graph 看滤波前后波形对比；__interrupt void Cla1Task1() 是任务入口</td>
+      <td>.cla 汇编语法、浮点单元 FPU 指令、FIR/IIR 滤波器原理（数字信号处理基础）</td>
+    </tr>
+    <tr>
+      <td>CLA</td>
+      <td>matrix_mpy / matrix_transpose / det_3by3</td>
+      <td>跑 report 看结果对错</td>
+      <td>矩阵运算在 CLA 上的实现、内存对齐要求</td>
+    </tr>
+    <tr>
+      <td>CLA</td>
+      <td>sqrt / divide / vinverse / exp2 / exp10 / acos / asin / atan</td>
+      <td>对比 CLA 结果与 CPU 浮点结果</td>
+      <td>查表法 + 牛顿-拉弗森迭代算法思想、浮点精度对比（这是 CLA 例程的精髓）</td>
+    </tr>
+    <tr>
+      <td>CLA</td>
+      <td>shellsort / primes / logic / crc8 / crc8table1 / vmaxfloat / vminfloat</td>
+      <td>算法验证例程，逐个跑通</td>
+      <td>排序/校验/向量运算的 CLA 实现、任务间通信</td>
+    </tr>
+  </tbody>
+</table>
+
+</body>
+</html>

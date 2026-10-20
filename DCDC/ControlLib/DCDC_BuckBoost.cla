@@ -1,0 +1,504 @@
+/*
+ * DCDC_BuckBoost.cla
+ *
+ *  Created on: 2025年6月15日
+ *      Author: phone
+ */
+#ifndef TASK_CLA
+#define TASK_CLA
+//-----------------------------------------------------------------------------
+// Include
+//-----------------------------------------------------------------------------
+#include "DCDC_GlobalHeadFile.h"
+//-----------------------------------------------------------------------------
+// Adding Constants and Macro Definitions
+//-----------------------------------------------------------------------------
+#define CLA_DEBUG         1//1
+#define DC_VOLT           400       //400V
+#define DC_VOLT_RECIP     (1.0/DC_VOLT)
+#define DC_CURR           100       //100A
+#define DC_CURR_RECIP     (1.0/DC_CURR)
+#define DC_POWER          RATED_POWER  //7Kw
+#define DC_POWER_RECIP    (1.0/DC_POWER)
+#define DC_POWER_RATIO    (100.0/7.5)   //最大电流/额定电流
+
+#define Vbus_Set(BusVolt)           (BusVolt*DC_VOLT_RECIP)
+#define Ibuckboost_Set(BatCurr)     (BatCurr*DC_CURR_RECIP)
+///
+typedef struct
+{
+    float32 fIbatRealScale;
+    float32 fIbatRealFilter;
+    float32 fIbatAdc_K;  // K
+    float32 fIbatAdc_B; // B
+
+    float32 fVbatRealScale;
+    float32 fVbatRealFilter;
+    float32 fVbatAdc_K;
+    float32 fVbatAdc_B;
+
+    float32 fVbusRealScale;
+    float32 fVbusRealFilter;
+    float32 fVbusAdc_K;
+    float32 fVbusAdc_B;
+
+    float32 fIbuckboostRealScale;
+    float32 fIbuckboostRealFilter;
+    float32 fIbuckboostAdc_K;   // 比例系数
+    float32 fIbuckboostAdc_B;  // 零偏校准值
+
+    float32 fVbatRelayRealScale;        //继电器前电压
+    float32 fVbatRelayRealFilter;
+    float32 fVbatRelayAdc_K;
+    float32 fVbatRelayAdc_B;
+
+    float32 fVportRealScale;            //端口电压
+    float32 fVportRealFilter;
+    float32 fVportAdc_K;
+    float32 fVportAdc_B;
+}Struct_AdcPool_Float;
+Struct_AdcPool_Float g_strAdcPool;
+
+Struct_Buck_Boost_ControlPara g_strBuckBoostCtrlPara;
+Struct_fIncPI g_strBusVolt_BuckBoost;
+Struct_fIncPI g_strChargeBatVolt_BuckBoost;//Buck模式下，电池充电的限流
+Struct_fIncPI g_strDisChargeBatVolt_BuckBoost;//Boost模式下，电池放电的限流
+Struct_fIncPI g_strBatCurr_BuckBoost;
+Uint16 uwClaFPUMode;
+
+const float32 fAdcHwRatio[eAdcEnd] =
+{
+     //硬件系数
+     6700,      //eIbuckboost
+     6700,      //eIbat
+     5317,      //eVbus
+     3625,      //eVbat
+     3625,      //eVbatRelay
+     7108,      //eVport
+     1,         //eVbuckTemp
+     1,         //eVboostTemp
+};
+
+struct  BYTES_2 {      // bits   description
+   Uint8      BYTE0:8;     // 7:0
+   Uint8      BYTE1:8;     // 15:8
+};
+typedef union a16
+{
+   int16             all;
+   struct BYTES_2   byte;
+}myInt16;
+
+//-----------------------------------------------------------------------------
+//Adding Private Function
+//-----------------------------------------------------------------------------
+
+// DC_VOLT:400
+// DC_CURR:100
+#pragma CODE_SECTION(Cla1Task1,"Cla1Prog");
+__interrupt void Cla1Task1(void) // 50us任务
+{
+    float32 fPbatTmp;
+
+//    #if CLA_DEBUG
+//    __mdebugstop();
+//    #endif
+
+    // 计算校准后的电压电流值
+//    g_strAdcPool.fVbusRealScale = g_strClaIn_AdcRawData.udVbusAdcVal*g_strAdcPool.fVbusAdc_K;
+    g_strAdcPool.fVbusRealScale = g_strClaIn_AdcRawData.udVbusAdcVal * 3.0 * 66.0 / 4096;  // 66倍
+
+ //   g_strAdcPool.fVbatRelayRealScale = g_strClaIn_AdcRawData.udVbatRelayAdcVal*g_strAdcPool.fVbatRelayAdc_K;
+    g_strAdcPool.fVbatRelayRealScale = g_strClaIn_AdcRawData.udVbatRelayAdcVal * 3.0 * 45.0 / 4096;  // 66倍
+
+//    g_strAdcPool.fVportRealScale = g_strClaIn_AdcRawData.udVportAdcVal*g_strAdcPool.fVportAdc_K;
+    g_strAdcPool.fVportRealScale = g_strClaIn_AdcRawData.udVportAdcVal * 3.0 * 88.235 / 4096;  // 66倍
+
+//    g_strAdcPool.fVbatRealScale = g_strClaIn_AdcRawData.udVbatAdcVal*g_strAdcPool.fVbatAdc_K;
+
+    // 电池电压电流--需要校准
+//    g_strAdcPool.fVbatRealScale = g_strClaIn_AdcRawData.udVbatAdcVal * 3.0 * 45.0 / 4096;
+//    g_strAdcPool.fIbatRealScale = ((g_strClaIn_AdcRawData.udIbatAdcVal- g_strAdcPool.fIbatAdc_B)* 3.0 / 2048)*1.6633*25; // 先不做0偏试一下
+
+//    g_strAdcPool.fIbatRealScale = ((g_strClaIn_AdcRawData.udIbatAdcVal-2048)* 3.0 /2048 )*1.6633*25;
+
+    g_strAdcPool.fVbatRealScale = ((float)g_strClaIn_AdcRawData.udVbatAdcVal * g_strClaIn_AdcRawData.floatVK + g_strClaIn_AdcRawData.floatVB)/1000.0;
+    if(g_strAdcPool.fVbatRealScale<0)
+        g_strAdcPool.fVbatRealScale = 0;
+    g_strAdcPool.fIbatRealScale = ((float)g_strClaIn_AdcRawData.udIbatAdcVal * g_strClaIn_AdcRawData.floatIK + g_strClaIn_AdcRawData.floatIB)/1000.0;
+
+
+
+
+//    g_strAdcPool.fIbuckboostRealScale = (g_strClaIn_AdcRawData.udIbuckboostAdcVal - g_strAdcPool.fIbuckboostAdc_B)*g_strAdcPool.fIbuckboostAdc_K;
+   // g_strAdcPool.fIbuckboostRealScale = ((g_strClaIn_AdcRawData.udIbuckboostAdcVal - g_strAdcPool.fIbuckboostAdc_B)* 3.0 / 4096 *2 -3.0)*1.6633*25;   // *3.0、4095为实际ADC电压
+    g_strAdcPool.fIbuckboostRealScale = ((g_strClaIn_AdcRawData.udIbuckboostAdcVal - g_strAdcPool.fIbuckboostAdc_B)* 3.0 / 2048)*1.6633*25;   // *3.0
+//    g_strAdcPool.fIbatRealScale = (g_strClaIn_AdcRawData.udIbatAdcVal - g_strAdcPool.fIbatAdc_B)*g_strAdcPool.fIbatAdc_K;
+  //  g_strAdcPool.fIbatRealScale = ((g_strClaIn_AdcRawData.udIbatAdcVal- g_strAdcPool.fIbatAdc_B)* 3.0 / 4096 *2 -3.0)*1.6633*25;   // *3.0、4095为实际ADC电压
+//    g_strAdcPool.fIbatRealScale = ((g_strClaIn_AdcRawData.udIbatAdcVal- g_strAdcPool.fIbatAdc_B)* 3.0 / 2048)*1.6633*25;   // *
+
+    // 校准后的数据输出给CPU用
+ //   g_strClaOut_AdcPool.dVbusRealVal = (int32)(g_strAdcPool.fVbusRealScale*DC_VOLT*1000.0);
+    g_strClaOut_AdcPool.dVbusRealVal = (int32)(g_strAdcPool.fVbusRealScale*1000.0);
+    g_strClaOut_AdcPool.dVbatRelayRealVal = (int32)(g_strAdcPool.fVbatRelayRealScale*1000.0);
+    g_strClaOut_AdcPool.dVportRealVal = (int32)(g_strAdcPool.fVportRealScale*1000.0);
+    g_strClaOut_AdcPool.dVbatRealVal = (int32)(g_strAdcPool.fVbatRealScale*1000.0);
+    g_strClaOut_AdcPool.dIbuckboostRealVal = (int32)(g_strAdcPool.fIbuckboostRealScale*1000.0);
+    g_strClaOut_AdcPool.dIbatRealVal = (int32)(g_strAdcPool.fIbatRealScale*1000.0);
+
+    fPbatTmp = g_strAdcPool.fIbatRealScale*g_strAdcPool.fVbatRealScale;  // 功率
+    g_strClaOut_AdcPool.dPbatRealVal = (int32)(fPbatTmp*1000.0);
+
+
+    // 整体变小，给环路计算用
+    g_strAdcPool.fVbusRealScale *= DC_VOLT_RECIP;
+    g_strAdcPool.fVbatRelayRealScale *= DC_VOLT_RECIP;
+    g_strAdcPool.fVportRealScale *= DC_VOLT_RECIP;
+    g_strAdcPool.fVbatRealScale *= DC_VOLT_RECIP;
+
+    g_strAdcPool.fIbuckboostRealScale *= DC_CURR_RECIP;
+    g_strAdcPool.fIbatRealScale *= DC_CURR_RECIP;
+
+    g_strAdcPool.fVbatRealFilter += 0.8*(g_strAdcPool.fVbatRealScale - g_strAdcPool.fVbatRealFilter);  // ？
+    g_strAdcPool.fVbusRealFilter += 0.8*(g_strAdcPool.fVbusRealScale - g_strAdcPool.fVbusRealFilter);
+    g_strAdcPool.fVbatRelayRealFilter += 0.8*(g_strAdcPool.fVbatRelayRealScale - g_strAdcPool.fVbatRelayRealFilter);
+
+
+}
+
+#pragma CODE_SECTION(Cla1Task2,"Cla1Prog");
+__interrupt void Cla1Task2(void)   // 50us任务
+{
+    Uint16 suwBoostDutyTmp = 0,suwBuckDutyTmp = 0;
+    myInt16 temInt16;
+    static Uint8 bBuckBoostModeTmp;
+    Uint8 needInitFlag=0;
+	Uint16 uwBuckDutyIntegTmp,uwBuckDutyFractTmp;
+    float32 fBuckDutyTmp;
+
+//    #if CLA_DEBUG
+//    __mdebugstop();
+//    #endif
+
+    g_strBuckBoostCtrlPara.unControlFlag.all = g_strClaIn_BuckBoostSetData.unControlFlag.all;  // 取出使能位，模式位，封波位
+    g_strBuckBoostCtrlPara.fBusRef = (float32)g_strClaIn_BuckBoostSetData.dBusRef * DC_VOLT_RECIP * 0.001; // 母线
+    g_strBuckBoostCtrlPara.fChargeBatVoltRef = (float32)g_strClaIn_BuckBoostSetData.dChargeBatVoltRef * DC_VOLT_RECIP * 0.001; // 充电电压
+    g_strBuckBoostCtrlPara.fDisChargeBatVoltRef = (float32)g_strClaIn_BuckBoostSetData.dDisChargeBatVoltRef * DC_VOLT_RECIP * 0.001;  // 放电电压
+    g_strBuckBoostCtrlPara.fBatChargeCurrLimit =    (float32)g_strClaIn_BuckBoostSetData.dBatChargeCurrLimit * DC_CURR_RECIP * 0.001; // 充电-电流上限
+    g_strBuckBoostCtrlPara.fBatDisChargeCurrLimit = (float32)g_strClaIn_BuckBoostSetData.dBatDisChargeCurrLimit * DC_CURR_RECIP * 0.001; // 放电-电流下限
+                                                                                                                        // 放电电流为负数！
+    g_strBusVolt_BuckBoost.fPIMax = g_strBuckBoostCtrlPara.fBatDisChargeCurrLimit + Ibuckboost_Set(2);//2A 负的应该不对
+    g_strDisChargeBatVolt_BuckBoost.fPIMax = g_strBusVolt_BuckBoost.fPIMax;
+    g_strChargeBatVolt_BuckBoost.fPIMax = g_strBuckBoostCtrlPara.fBatChargeCurrLimit + Ibuckboost_Set(2);//2A
+
+    /* 这里调试时用，MODBUS发送PID参数 */
+//    g_strBusVolt_BuckBoost.fKp = (float32)g_strClaIn_BuckBoostSetData.uwVbusLoopKp * 0.001;
+//    g_strBusVolt_BuckBoost.fKi = (float32)g_strClaIn_BuckBoostSetData.uwVbusLoopKi * 0.001;
+//    g_strChargeBatVolt_BuckBoost.fKp = (float32)g_strClaIn_BuckBoostSetData.uwVbatLoopKp * 0.001;
+//    g_strChargeBatVolt_BuckBoost.fKi = (float32)g_strClaIn_BuckBoostSetData.uwVbatLoopKi * 0.001;
+////    g_strDisChargeBatVolt_BuckBoost.fKp = g_strChargeBatVolt_BuckBoost.fKp;
+////    g_strDisChargeBatVolt_BuckBoost.fKi = g_strChargeBatVolt_BuckBoost.fKi;
+//    g_strBatCurr_BuckBoost.fKp = (float32)g_strClaIn_BuckBoostSetData.uwIbatLoopKp * 0.0001;
+//    g_strBatCurr_BuckBoost.fKi = (float32)g_strClaIn_BuckBoostSetData.uwIbatLoopKp * 0.0001;
+
+    /* 充放电切换时，需要重新复位初始化到0再重新启动 */
+    if(    (bBuckBoostModeTmp != g_strBuckBoostCtrlPara.unControlFlag.bit.bBuckBoostMode)&&
+            ( (eBatChargeMode == g_strBuckBoostCtrlPara.unControlFlag.bit.bBuckBoostMode)||
+              (eBatDisChargeMode == g_strBuckBoostCtrlPara.unControlFlag.bit.bBuckBoostMode) ) )
+    {
+            needInitFlag = 1;
+    }
+    else
+    {
+        needInitFlag = 0;
+    }
+    bBuckBoostModeTmp = g_strBuckBoostCtrlPara.unControlFlag.bit.bBuckBoostMode;
+
+    /* 环路计算  */
+    if((TRUE == g_strBuckBoostCtrlPara.unControlFlag.bit.bBuckBoostEnable)&&(needInitFlag==0))
+    {
+        if(eBatChargeMode == g_strBuckBoostCtrlPara.unControlFlag.bit.bBuckBoostMode)  /*  充电   */
+        {
+            //电压环
+            if(g_strBuckBoostCtrlPara.unControlFlag.bit.preChargeFlag==1) // 预充时控制目标为电容的电压
+            {
+                g_strChargeBatVolt_BuckBoost.fErr = g_strBuckBoostCtrlPara.fChargeBatVoltRef - g_strAdcPool.fVbatRelayRealFilter;
+            }
+            else
+            {
+                g_strChargeBatVolt_BuckBoost.fErr = g_strBuckBoostCtrlPara.fChargeBatVoltRef - g_strAdcPool.fVbatRealFilter;
+            }
+
+            UPDNLMT(g_strChargeBatVolt_BuckBoost.fErr,0.05,-0.05);//20V
+            g_strChargeBatVolt_BuckBoost.fLoopOut = m_fIncPID(&g_strChargeBatVolt_BuckBoost);
+
+            //电流环
+            g_strBuckBoostCtrlPara.fBatCurrRef = g_strChargeBatVolt_BuckBoost.fLoopOut;
+//            UPDNLMT(g_strBuckBoostCtrlPara.fBatCurrRef,g_strBuckBoostCtrlPara.fBatChargeCurrLimit,0);//g_strBuckBoostCtrlPara.fBatDisChargeCurrLimit);
+            UPDNLMT(g_strBuckBoostCtrlPara.fBatCurrRef,g_strBuckBoostCtrlPara.fBatChargeCurrLimit,0-g_strBuckBoostCtrlPara.fBatChargeCurrLimit);
+
+            g_strBatCurr_BuckBoost.fErr = g_strBuckBoostCtrlPara.fBatCurrRef - g_strAdcPool.fIbuckboostRealScale; // 减去校准后的电流值
+
+           UPDNLMT(g_strBatCurr_BuckBoost.fErr,0.2,-0.2);
+         //             UPDNLMT(g_strBatCurr_BuckBoost.fErr,0.5,-0.5);
+            g_strBatCurr_BuckBoost.fLoopOut = m_fIncPID(&g_strBatCurr_BuckBoost);
+
+            // suwBuckDutyTmp = (Uint16)(g_strBatCurr_BuckBoost.fLoopOut * BUCKBOOST_PWM_TIMER_TBPRD);
+            // UPLMT(suwBuckDutyTmp,BUCKBOOST_PWM_DUTY_MAX);
+
+            //HRPWM
+            fBuckDutyTmp = g_strBatCurr_BuckBoost.fLoopOut * BUCKBOOST_PWM_TIMER_TBPRD;
+            UPLMT(fBuckDutyTmp,BUCKBOOST_PWM_DUTY_MAX);
+            uwBuckDutyIntegTmp = (Uint16)(fBuckDutyTmp);    //整数部分
+            uwBuckDutyFractTmp = (Uint16)((float32)(fBuckDutyTmp - (float32)uwBuckDutyIntegTmp)*256.0f);    //小数部分
+
+
+            __meallow();
+            EPwm1Regs.AQCSFRC.bit.CSFB = 1;
+            EPwm1Regs.AQCSFRC.bit.CSFA = 0;
+            // EPwm1Regs.CMPA.half.CMPA = (Uint16)(suwBuckDutyTmp);
+            EPwm1Regs.CMPA.half.CMPA = (Uint16)uwBuckDutyIntegTmp;
+            EPwm1Regs.CMPA.half.CMPAHR = (Uint16)uwBuckDutyFractTmp;			
+            EPwm1Regs.CMPB = 0;
+            EPwm1Regs.TZCLR.bit.OST = 1;
+            __medis();
+
+            temInt16.all = (int16)(g_strChargeBatVolt_BuckBoost.fErr*10000.0);
+            uwLoopOutData[0] = temInt16.byte.BYTE1*256 + temInt16.byte.BYTE0;
+
+            temInt16.all = (int16)(g_strChargeBatVolt_BuckBoost.fLoopOut*10000.0);
+            uwLoopOutData[1] = temInt16.byte.BYTE1*256 + temInt16.byte.BYTE0;
+
+            temInt16.all = (int16)(g_strBatCurr_BuckBoost.fErr*10000.0);
+            uwLoopOutData[2] = temInt16.byte.BYTE1*256 + temInt16.byte.BYTE0;
+
+            temInt16.all = (int16)(g_strBatCurr_BuckBoost.fLoopOut*10000.0);
+            uwLoopOutData[3] = temInt16.byte.BYTE1*256 + temInt16.byte.BYTE0;
+
+            uwLoopOutData[4] = (Uint16)(g_strBuckBoostCtrlPara.fBatChargeCurrLimit*10000.0);
+            uwLoopOutData[5] = suwBuckDutyTmp;
+
+
+        }
+        else if((eBatDisChargeMode == g_strBuckBoostCtrlPara.unControlFlag.bit.bBuckBoostMode)&&(g_strBuckBoostCtrlPara.unControlFlag.bit.preChargeFlag==0))  /*  放电   */
+        {
+            //电压环
+            g_strBusVolt_BuckBoost.fErr = g_strBuckBoostCtrlPara.fBusRef - g_strAdcPool.fVbusRealFilter;  // 偏差
+            UPDNLMT(g_strBusVolt_BuckBoost.fErr,0.02,-0.02); // 20V 大小限制
+            g_strBusVolt_BuckBoost.fLoopOut = m_fIncPID(&g_strBusVolt_BuckBoost);  // PI
+
+
+            // 放电电压给定
+            g_strDisChargeBatVolt_BuckBoost.fErr = g_strAdcPool.fVbatRealFilter - g_strBuckBoostCtrlPara.fDisChargeBatVoltRef;  // 偏差
+            UPDNLMT(g_strDisChargeBatVolt_BuckBoost.fErr,0.0125,-0.0125);  // 20V 大小限制
+            g_strDisChargeBatVolt_BuckBoost.fLoopOut = m_fIncPID(&g_strDisChargeBatVolt_BuckBoost); // PI
+
+            //电流环输入做限制
+            g_strBuckBoostCtrlPara.fBatCurrRef = g_strBusVolt_BuckBoost.fLoopOut;  // 用母线电压输入
+            UPLMT(g_strBuckBoostCtrlPara.fBatCurrRef,g_strDisChargeBatVolt_BuckBoost.fLoopOut);  // 放电电压限制电流输入大小
+            UPDNLMT(g_strBuckBoostCtrlPara.fBatCurrRef,g_strBuckBoostCtrlPara.fBatDisChargeCurrLimit,0);
+                                                            // 这里限制上下限？
+
+            //电流环
+            g_strBatCurr_BuckBoost.fErr = g_strBuckBoostCtrlPara.fBatCurrRef + g_strAdcPool.fIbuckboostRealScale; // 减去校准后的电流值
+                                                                               // // 这里用BAT电流？
+            UPDNLMT(g_strBatCurr_BuckBoost.fErr,0.2,-0.2);
+            g_strBatCurr_BuckBoost.fLoopOut = m_fIncPID(&g_strBatCurr_BuckBoost);
+
+            suwBoostDutyTmp = (Uint16)(g_strBatCurr_BuckBoost.fLoopOut * BUCKBOOST_PWM_TIMER_TBPRD);
+            UPLMT(suwBoostDutyTmp,BUCKBOOST_PWM_DUTY_MAX); // 750最大
+
+            __meallow();
+            EPwm1Regs.AQCSFRC.bit.CSFA = 1;
+            EPwm1Regs.AQCSFRC.bit.CSFB = 0;
+            EPwm1Regs.CMPA.half.CMPA = 0;
+            EPwm1Regs.CMPB = (Uint16)suwBoostDutyTmp;
+            EPwm1Regs.TZCLR.bit.OST = 1;
+            __medis();
+
+        }
+        else if(eOpenMode == g_strBuckBoostCtrlPara.unControlFlag.bit.bBuckBoostMode)  /*  开环控制充放电   */
+        {
+            // 充电是EPWM1A MODBUS 16地址
+            if(0 != g_strClaIn_BuckBoostSetData.uwDebugPara1) // 充电
+            {
+                suwBuckDutyTmp = (float32)g_strClaIn_BuckBoostSetData.uwDebugPara1*0.01*BUCKBOOST_PWM_TIMER_TBPRD;
+                UPLMT(suwBuckDutyTmp,BUCKBOOST_PWM_DUTY_MAX);
+
+                __meallow();
+                EPwm1Regs.AQCSFRC.bit.CSFB = 1;
+                EPwm1Regs.AQCSFRC.bit.CSFA = 0;
+                EPwm1Regs.CMPA.half.CMPA = (Uint16)(suwBuckDutyTmp); // 充电是EPWM1A
+                EPwm1Regs.CMPB = 0;
+                EPwm1Regs.TZCLR.bit.OST = 1;
+                __medis();
+            }
+
+            // 放电是EPWM1B MODBUS 17地址
+            if(0 != g_strClaIn_BuckBoostSetData.uwDebugPara2)  // 放电
+            {
+                suwBoostDutyTmp = (float32)g_strClaIn_BuckBoostSetData.uwDebugPara2*0.01*BUCKBOOST_PWM_TIMER_TBPRD;
+                UPLMT(suwBoostDutyTmp,BUCKBOOST_PWM_DUTY_MAX);
+
+                __meallow();
+                EPwm1Regs.AQCSFRC.bit.CSFA = 1;
+                EPwm1Regs.AQCSFRC.bit.CSFB = 0;
+                EPwm1Regs.CMPA.half.CMPA = 0;
+                EPwm1Regs.CMPB = (Uint16)suwBoostDutyTmp;  // 放电是EPWM1B
+                EPwm1Regs.TZCLR.bit.OST = 1;
+                __medis();
+            }
+        }
+    }
+    else
+    {
+        __meallow();
+        EPwm1Regs.AQCSFRC.bit.CSFA = 1;
+        EPwm1Regs.AQCSFRC.bit.CSFB = 1;
+        EPwm1Regs.TZFRC.bit.OST = 1;//软件触发TZ
+        EPwm1Regs.CMPA.half.CMPA = 0;
+        EPwm1Regs.CMPB = 0;
+        __medis();
+
+        g_strBusVolt_BuckBoost.fErrOld = 0;
+        g_strBusVolt_BuckBoost.fLoopOut = 0;
+        g_strBusVolt_BuckBoost.fLoopOutOld = 0;
+
+        g_strChargeBatVolt_BuckBoost.fErrOld = 0;
+        g_strChargeBatVolt_BuckBoost.fLoopOut = 0;
+        g_strChargeBatVolt_BuckBoost.fLoopOutOld = 0;
+
+        g_strDisChargeBatVolt_BuckBoost.fErrOld = 0;
+        g_strDisChargeBatVolt_BuckBoost.fLoopOut = 0;
+        g_strDisChargeBatVolt_BuckBoost.fLoopOutOld = 0;
+
+        g_strBatCurr_BuckBoost.fErrOld = 0;
+        g_strBatCurr_BuckBoost.fLoopOut = 0;
+        g_strBatCurr_BuckBoost.fLoopOutOld = 0;
+    }
+
+//    uwLoopOutData[0] = (Uint16)(g_strBusVolt_BuckBoost.fErr*10000.0);
+//    uwLoopOutData[1] = (Uint16)(g_strBusVolt_BuckBoost.fLoopOut*10000.0);
+//    uwLoopOutData[2] = (Uint16)( g_strAdcPool.fVbatRealFilter*10000.0);
+//    uwLoopOutData[3] = (Uint16)(g_strBatCurr_BuckBoost.fErr*10000.0);
+//    uwLoopOutData[4] = (Uint16)(g_strBatCurr_BuckBoost.fLoopOut*10000.0);
+//    uwLoopOutData[5] = (Uint16)(g_strBuckBoostCtrlPara.fBatCurrRef*10000.0);
+//    uwLoopOutData[0]=(Uint16)(g_strChargeBatVolt_BuckBoost.fErr*10000.0);
+//    uwLoopOutData[1]=(Uint16)(g_strChargeBatVolt_BuckBoost.fLoopOut*10000.0);
+//    uwLoopOutData[2]=(Uint16)(g_strChargeBatVolt_BuckBoost.fLoopOut*10000.0+10000.0);
+//    uwLoopOutData[3]=(Uint16)(g_strBatCurr_BuckBoost.fErr*10000.0);
+//    uwLoopOutData[4]=(Uint16)(g_strBatCurr_BuckBoost.fLoopOut*10000.0);
+//    uwLoopOutData[5]=(Uint16)(g_strBatCurr_BuckBoost.fLoopOut*10000.0+10000.0);
+}
+
+__interrupt void Cla1Task3(void)
+{
+
+}
+
+__interrupt void Cla1Task4(void)
+{
+
+}
+
+__interrupt void Cla1Task5(void)
+{
+
+}
+
+__interrupt void Cla1Task6(void)
+{
+
+}
+
+__interrupt void Cla1Task7(void)
+{
+
+}
+
+#pragma CODE_SECTION(Cla1Task8,"Cla1Prog");
+__interrupt void Cla1Task8(void)
+{
+    float32 fRatedRecipTmp;
+
+//    #if CLA_DEBUG
+//    __mdebugstop();
+//    #endif
+
+    if(0xFF != uwClaFPUMode)//CLA浮点计算采用就近舍入向偶舍入模式
+    {
+        __asm (" MSETFLG RNDF32=1");
+        uwClaFPUMode = 0xFF;
+    }
+
+    __meallow();
+    EPwm1Regs.AQCSFRC.bit.CSFA = 1;
+    EPwm1Regs.AQCSFRC.bit.CSFB = 1;
+    EPwm1Regs.TZFRC.bit.OST = 1;//软件触发TZ
+    EPwm1Regs.CMPA.half.CMPA = 0;
+    EPwm1Regs.CMPB = 0;
+    __medis();
+
+    fRatedRecipTmp = DC_CURR_RECIP;
+    g_strAdcPool.fIbuckboostAdc_K = fAdcHwRatio[eIbuckboost]*0.00001*fRatedRecipTmp;//比例系数
+    g_strAdcPool.fIbatAdc_K = fAdcHwRatio[eIbat]*0.00001*fRatedRecipTmp;
+
+    g_strAdcPool.fIbuckboostAdc_B = g_strClaIn_AdcRawData.udIbuckboostAdcVal;//零偏校准值
+    g_strAdcPool.fIbatAdc_B = g_strClaIn_AdcRawData.udIbatAdcVal;
+
+
+    fRatedRecipTmp = DC_VOLT_RECIP;
+    g_strAdcPool.fVbusAdc_K = fAdcHwRatio[eVbus]*0.00001*fRatedRecipTmp;
+    g_strAdcPool.fVbatAdc_K = fAdcHwRatio[eVbat]*0.00001*fRatedRecipTmp;
+    g_strAdcPool.fVbatRelayAdc_K = fAdcHwRatio[eVbat_Relay]*0.00001*fRatedRecipTmp;
+    g_strAdcPool.fVportAdc_K = fAdcHwRatio[eVport]*0.00001*fRatedRecipTmp;
+
+    g_strAdcPool.fVbatRealFilter = 0;
+    g_strAdcPool.fVbusRealFilter = 0;
+    g_strAdcPool.fIbatRealFilter = 0;
+
+    g_strBuckBoostCtrlPara.fBusRef = 200.0 *DC_VOLT_RECIP;
+    g_strBuckBoostCtrlPara.fChargeBatVoltRef = 200.0 *DC_VOLT_RECIP;
+    g_strBuckBoostCtrlPara.fDisChargeBatVoltRef = 200.0 *DC_VOLT_RECIP;
+
+
+    g_strBusVolt_BuckBoost.fKp = 0.02;    // 母线电压
+    g_strBusVolt_BuckBoost.fKi = 0.002;
+    g_strBusVolt_BuckBoost.fPIMax = 1.0;
+    g_strBusVolt_BuckBoost.fPIMin = -0.1; // 0
+    g_strBusVolt_BuckBoost.fErrOld = 0;
+    g_strBusVolt_BuckBoost.fLoopOutOld = 0;
+
+    g_strDisChargeBatVolt_BuckBoost.fKp = 0.05;  // 放电电压
+    g_strDisChargeBatVolt_BuckBoost.fKi = 0.005;
+    g_strDisChargeBatVolt_BuckBoost.fPIMax = 1;
+    g_strDisChargeBatVolt_BuckBoost.fPIMin = -0.1; // 0
+    g_strDisChargeBatVolt_BuckBoost.fErrOld = 0;
+    g_strDisChargeBatVolt_BuckBoost.fLoopOutOld = 0;
+
+//    g_strChargeBatVolt_BuckBoost.fKp = 0.2;     // 充电电压
+//    g_strChargeBatVolt_BuckBoost.fKi = 0.02;
+    g_strChargeBatVolt_BuckBoost.fKp = 0.1;     // 充电电压
+//    g_strChargeBatVolt_BuckBoost.fKi = 0.01;
+     g_strChargeBatVolt_BuckBoost.fKi = 0.8;     // 增大这个积分，以免恒压时电压冲得太高，也稳不下来一直跳的问题
+
+
+    g_strChargeBatVolt_BuckBoost.fPIMax = 1.0;
+    g_strChargeBatVolt_BuckBoost.fPIMin = -0.2; // 0
+    g_strChargeBatVolt_BuckBoost.fErrOld = 0;
+    g_strChargeBatVolt_BuckBoost.fLoopOutOld = 0;
+
+//    g_strBatCurr_BuckBoost.fKp = 0.02;            // 电池电流
+    //   g_strBatCurr_BuckBoost.fKp = 0.005;            // 电池电流
+    //   g_strBatCurr_BuckBoost.fKi = 0.001;
+    g_strBatCurr_BuckBoost.fKp = 0.005;            // 电池电流
+    g_strBatCurr_BuckBoost.fKi = 0.01;  // 增加KI，放电过冲才小
+    g_strBatCurr_BuckBoost.fPIMax = 1.0;
+    g_strBatCurr_BuckBoost.fPIMin = -0.1; // 0
+    g_strBatCurr_BuckBoost.fErrOld = 0;
+    g_strBatCurr_BuckBoost.fLoopOutOld = 0;
+
+}
+
+#endif  //TASK_CLA
+
